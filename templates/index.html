@@ -138,21 +138,47 @@
             });
 
             $('#trainAIBtn').click(function() {
-                $('#message').text('Training AI...');
+                $('#message').text('Starting AI training...');
                 $.ajax({
                     url: '/train_ai',
                     method: 'POST',
                     contentType: 'application/json',
-                    data: JSON.stringify({ num_games: 100 }),
+                    data: JSON.stringify({ num_games: 50 }),
                     success: function(data) {
                         $('#message').text(data.message);
+                        // Start polling for training status
+                        pollTrainingStatus();
                     },
                     error: function(jqXHR, textStatus, errorThrown) {
                         console.error('Error training AI:', textStatus, errorThrown);
-                        $('#message').text('Error training AI. Please try again.');
+                        if (jqXHR.responseJSON && jqXHR.responseJSON.error) {
+                            $('#message').text('Error: ' + jqXHR.responseJSON.error);
+                        } else {
+                            $('#message').text('Error training AI. Please try again.');
+                        }
                     }
                 });
             });
+
+            function pollTrainingStatus() {
+                $.ajax({
+                    url: '/training_status',
+                    method: 'GET',
+                    success: function(data) {
+                        if (data.is_training) {
+                            $('#message').text(`Training: ${data.current_game}/${data.total_games} games (${data.progress}%)`);
+                            // Continue polling
+                            setTimeout(pollTrainingStatus, 1000);
+                        } else {
+                            $('#message').text(data.message);
+                        }
+                    },
+                    error: function() {
+                        console.error('Error getting training status');
+                        setTimeout(pollTrainingStatus, 2000); // Retry after 2 seconds
+                    }
+                });
+            }
 
             $('#undoBtn').click(function() {
                 $.ajax({
