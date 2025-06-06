@@ -43,13 +43,25 @@ def make_move():
                 'evaluation': ai.evaluate_position(board)
             }
         else:
-            # Get AI move
-            ai_move = ai.get_best_move(board, difficulty)
-            if ai_move:
-                print(f"AI move: {ai_move}")
-                board.make_move(ai_move)
-            else:
-                print("AI has no legal moves!")
+            # Get AI move with timeout protection
+            try:
+                print("Getting AI move...")
+                ai_move = ai.get_best_move(board, difficulty)
+                if ai_move:
+                    print(f"AI move: {ai_move}")
+                    board.make_move(ai_move)
+                else:
+                    print("AI has no legal moves!")
+            except Exception as e:
+                print(f"AI error: {e}")
+                # Emergency fallback - pick first legal move
+                legal_moves = board.get_legal_moves_safe()
+                if legal_moves:
+                    ai_move = legal_moves[0]
+                    print(f"Emergency AI move: {ai_move}")
+                    board.make_move(ai_move)
+                else:
+                    ai_move = None
 
             response = {
                 'fen': board.to_fen(),
