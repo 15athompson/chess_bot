@@ -330,8 +330,89 @@ class ChessAI:
     def __init__(self):
         self.model = self.create_model()
         self.piece_values = {
-            'p': 1, 'n': 3, 'b': 3, 'r': 5, 'q': 9, 'k': 0,
-            'P': -1, 'N': -3, 'B': -3, 'R': -5, 'Q': -9, 'K': 0
+            'p': 100, 'n': 320, 'b': 330, 'r': 500, 'q': 900, 'k': 0,
+            'P': 100, 'N': 320, 'B': 330, 'R': 500, 'Q': 900, 'K': 0
+        }
+        self.nodes_searched = 0
+        self.max_nodes = 50000  # Limit search to prevent hanging
+        import time
+        self.start_time = 0
+        self.max_time = 10.0  # Maximum 10 seconds per move
+
+        # Piece-Square Tables for positional evaluation
+        self.pawn_table = [
+            [0,  0,  0,  0,  0,  0,  0,  0],
+            [50, 50, 50, 50, 50, 50, 50, 50],
+            [10, 10, 20, 30, 30, 20, 10, 10],
+            [5,  5, 10, 25, 25, 10,  5,  5],
+            [0,  0,  0, 20, 20,  0,  0,  0],
+            [5, -5,-10,  0,  0,-10, -5,  5],
+            [5, 10, 10,-20,-20, 10, 10,  5],
+            [0,  0,  0,  0,  0,  0,  0,  0]
+        ]
+
+        self.knight_table = [
+            [-50,-40,-30,-30,-30,-30,-40,-50],
+            [-40,-20,  0,  0,  0,  0,-20,-40],
+            [-30,  0, 10, 15, 15, 10,  0,-30],
+            [-30,  5, 15, 20, 20, 15,  5,-30],
+            [-30,  0, 15, 20, 20, 15,  0,-30],
+            [-30,  5, 10, 15, 15, 10,  5,-30],
+            [-40,-20,  0,  5,  5,  0,-20,-40],
+            [-50,-40,-30,-30,-30,-30,-40,-50]
+        ]
+
+        self.bishop_table = [
+            [-20,-10,-10,-10,-10,-10,-10,-20],
+            [-10,  0,  0,  0,  0,  0,  0,-10],
+            [-10,  0,  5, 10, 10,  5,  0,-10],
+            [-10,  5,  5, 10, 10,  5,  5,-10],
+            [-10,  0, 10, 10, 10, 10,  0,-10],
+            [-10, 10, 10, 10, 10, 10, 10,-10],
+            [-10,  5,  0,  0,  0,  0,  5,-10],
+            [-20,-10,-10,-10,-10,-10,-10,-20]
+        ]
+
+        self.rook_table = [
+            [0,  0,  0,  0,  0,  0,  0,  0],
+            [5, 10, 10, 10, 10, 10, 10,  5],
+            [-5,  0,  0,  0,  0,  0,  0, -5],
+            [-5,  0,  0,  0,  0,  0,  0, -5],
+            [-5,  0,  0,  0,  0,  0,  0, -5],
+            [-5,  0,  0,  0,  0,  0,  0, -5],
+            [-5,  0,  0,  0,  0,  0,  0, -5],
+            [0,  0,  0,  5,  5,  0,  0,  0]
+        ]
+
+        self.queen_table = [
+            [-20,-10,-10, -5, -5,-10,-10,-20],
+            [-10,  0,  0,  0,  0,  0,  0,-10],
+            [-10,  0,  5,  5,  5,  5,  0,-10],
+            [-5,  0,  5,  5,  5,  5,  0, -5],
+            [0,  0,  5,  5,  5,  5,  0, -5],
+            [-10,  5,  5,  5,  5,  5,  0,-10],
+            [-10,  0,  5,  0,  0,  0,  0,-10],
+            [-20,-10,-10, -5, -5,-10,-10,-20]
+        ]
+
+        self.king_table = [
+            [-30,-40,-40,-50,-50,-40,-40,-30],
+            [-30,-40,-40,-50,-50,-40,-40,-30],
+            [-30,-40,-40,-50,-50,-40,-40,-30],
+            [-30,-40,-40,-50,-50,-40,-40,-30],
+            [-20,-30,-30,-40,-40,-30,-30,-20],
+            [-10,-20,-20,-20,-20,-20,-20,-10],
+            [20, 20,  0,  0,  0,  0, 20, 20],
+            [20, 30, 10,  0,  0, 10, 30, 20]
+        ]
+
+        # Opening book - common good opening moves
+        self.opening_book = {
+            'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1': ['e2e4', 'd2d4', 'g1f3', 'c2c4'],
+            'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1': ['e7e5', 'c7c5', 'e7e6', 'c7c6'],
+            'rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1': ['d7d5', 'g8f6', 'c7c5', 'e7e6'],
+            'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2': ['g1f3', 'f1c4', 'd2d3', 'b1c3'],
+            'rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq d6 0 2': ['c2c4', 'g1f3', 'e2e3', 'b1c3']
         }
 
     def create_model(self):
@@ -352,48 +433,98 @@ class ChessAI:
                     input_data[i*8 + j] = self.piece_values[piece] / 9  # Normalize the value
         return input_data.reshape(1, -1)
 
+    def get_piece_square_value(self, piece, row, col):
+        """Get positional value for a piece at given position"""
+        piece_type = piece.lower()
+
+        # For black pieces, flip the row (mirror the table)
+        if piece.islower():
+            row = 7 - row
+
+        if piece_type == 'p':
+            return self.pawn_table[row][col]
+        elif piece_type == 'n':
+            return self.knight_table[row][col]
+        elif piece_type == 'b':
+            return self.bishop_table[row][col]
+        elif piece_type == 'r':
+            return self.rook_table[row][col]
+        elif piece_type == 'q':
+            return self.queen_table[row][col]
+        elif piece_type == 'k':
+            return self.king_table[row][col]
+        return 0
+
     def evaluate_position(self, board):
-        score = 0
+        """Evaluate position from current player's perspective (positive = good for current player)"""
+        # Use reasonable piece values in centipawns (1 pawn = 100)
+        piece_values_cp = {
+            'p': 100, 'n': 320, 'b': 330, 'r': 500, 'q': 900, 'k': 0,
+            'P': 100, 'N': 320, 'B': 330, 'R': 500, 'Q': 900, 'K': 0
+        }
 
-        # Material evaluation
-        for row in board.board:
-            for piece in row:
+        white_score = 0
+        black_score = 0
+
+        # Count material for both sides
+        for row in range(8):
+            for col in range(8):
+                piece = board.board[row][col]
                 if piece != '.':
-                    score += self.piece_values[piece]
+                    base_value = piece_values_cp[piece.upper()]
 
-        # King safety evaluation
-        white_king_pos = board.find_king('w')
-        black_king_pos = board.find_king('b')
+                    # Add small positional bonus (clamped to reasonable range)
+                    positional_bonus = self.get_piece_square_value(piece, row, col)
+                    positional_bonus = max(-30, min(30, positional_bonus))  # Limit to ±30
 
-        if white_king_pos:
-            # Penalty for white king being in check
-            if board.is_in_check('w'):
-                score -= 50
-            # Penalty for exposed king (simplified)
-            king_row, king_col = white_king_pos
-            if king_row < 6:  # King moved forward
-                score -= 10
+                    total_value = base_value + positional_bonus
 
-        if black_king_pos:
-            # Penalty for black king being in check
-            if board.is_in_check('b'):
-                score += 50
-            # Penalty for exposed king (simplified)
-            king_row, king_col = black_king_pos
-            if king_row > 1:  # King moved forward
-                score += 10
+                    if piece.isupper():  # White pieces
+                        white_score += total_value
+                    else:  # Black pieces
+                        black_score += total_value
 
-        # Center control bonus
+        # Calculate base material difference (White perspective)
+        material_diff = white_score - black_score
+
+        # Add small bonuses/penalties for game state
+        bonus = 0
+
+        # Check penalties (moderate)
+        if board.is_in_check('w'):
+            bonus -= 50  # White in check is bad
+        if board.is_in_check('b'):
+            bonus += 50  # Black in check is good for White
+
+        # Center control (small bonus)
         center_squares = [(3, 3), (3, 4), (4, 3), (4, 4)]
         for row, col in center_squares:
             piece = board.board[row][col]
             if piece != '.':
                 if piece.isupper():
-                    score += 5  # White controls center
+                    bonus += 10  # White controls center
                 else:
-                    score -= 5  # Black controls center
+                    bonus -= 10  # Black controls center
 
-        return score
+        # Total score from White's perspective
+        white_perspective_score = material_diff + bonus
+
+        # Convert to current player's perspective
+        if board.turn == 'w':
+            final_score = white_perspective_score  # Positive = good for White
+        else:
+            final_score = -white_perspective_score  # Positive = good for Black
+
+        # Clamp to reasonable range for display
+        final_score = max(-2000, min(2000, final_score))
+
+        return final_score
+
+        # Score interpretation for users:
+        # +100 = up a pawn (good position)
+        # +300 = up a minor piece (winning)
+        # +500 = up a rook (very winning)
+        # +900 = up a queen (completely winning)
 
     def train_self_play(self, num_games=100):
         print(f"Starting training with {num_games} games...")
@@ -442,52 +573,176 @@ class ChessAI:
 
         print(f"Training completed! Trained on {num_games} games.")
 
+    def quiescence_search(self, board, alpha, beta, maximizing_player, depth=0):
+        """Simplified quiescence search with depth limit"""
+        # Limit quiescence depth to prevent infinite recursion
+        if depth > 3:
+            return self.evaluate_position(board)
+
+        stand_pat = self.evaluate_position(board)
+
+        if maximizing_player:
+            if stand_pat >= beta:
+                return beta
+            alpha = max(alpha, stand_pat)
+        else:
+            if stand_pat <= alpha:
+                return alpha
+            beta = min(beta, stand_pat)
+
+        # Only consider captures in quiescence search
+        legal_moves = board.get_legal_moves_safe()
+        capture_moves = []
+        for move in legal_moves[:10]:  # Limit moves to check
+            to_col, to_row = ord(move[2]) - ord('a'), 8 - int(move[3])
+            if board.board[to_row][to_col] != '.':
+                capture_moves.append(move)
+
+        if not capture_moves:
+            return stand_pat
+
+        # Order captures by captured piece value (only top 3)
+        capture_moves.sort(key=lambda m: abs(self.piece_values.get(board.board[8 - int(m[3])][ord(m[2]) - ord('a')], 0)), reverse=True)
+        capture_moves = capture_moves[:3]
+
+        if maximizing_player:
+            for move in capture_moves:
+                temp_board = ChessBoard(board.to_fen())
+                temp_board.make_move(move)
+                score = self.quiescence_search(temp_board, alpha, beta, False, depth + 1)
+                alpha = max(alpha, score)
+                if beta <= alpha:
+                    break
+            return alpha
+        else:
+            for move in capture_moves:
+                temp_board = ChessBoard(board.to_fen())
+                temp_board.make_move(move)
+                score = self.quiescence_search(temp_board, alpha, beta, True, depth + 1)
+                beta = min(beta, score)
+                if beta <= alpha:
+                    break
+            return beta
+
+    def minimax(self, board, depth, alpha, beta, maximizing_player):
+        """Minimax algorithm with alpha-beta pruning and time/node limits"""
+        import time
+
+        # Check time and node limits
+        self.nodes_searched += 1
+        if (self.nodes_searched > self.max_nodes or
+            time.time() - self.start_time > self.max_time):
+            return self.evaluate_position(board)
+
+        if depth == 0:
+            return self.evaluate_position(board)
+
+        if board.is_game_over():
+            return self.evaluate_position(board)
+
+        legal_moves = board.get_legal_moves_safe()
+        if not legal_moves:
+            # No legal moves - game over
+            if board.is_in_check(board.turn):
+                # Checkmate
+                return -999999 if maximizing_player else 999999
+            else:
+                # Stalemate
+                return 0
+
+        # Order moves for better pruning (but limit to first 10 moves for speed)
+        ordered_moves = self.order_moves(board, legal_moves)[:10]
+
+        if maximizing_player:
+            max_eval = float('-inf')
+            for move in ordered_moves:
+                temp_board = ChessBoard(board.to_fen())
+                temp_board.make_move(move)
+                eval_score = self.minimax(temp_board, depth - 1, alpha, beta, False)
+                max_eval = max(max_eval, eval_score)
+                alpha = max(alpha, eval_score)
+                if beta <= alpha:
+                    break  # Alpha-beta pruning
+            return max_eval
+        else:
+            min_eval = float('inf')
+            for move in ordered_moves:
+                temp_board = ChessBoard(board.to_fen())
+                temp_board.make_move(move)
+                eval_score = self.minimax(temp_board, depth - 1, alpha, beta, True)
+                min_eval = min(min_eval, eval_score)
+                beta = min(beta, eval_score)
+                if beta <= alpha:
+                    break  # Alpha-beta pruning
+            return min_eval
+
+    def order_moves(self, board, moves):
+        """Order moves for better alpha-beta pruning (captures first, then others)"""
+        captures = []
+        non_captures = []
+
+        for move in moves:
+            to_col, to_row = ord(move[2]) - ord('a'), 8 - int(move[3])
+            if board.board[to_row][to_col] != '.':
+                captures.append(move)
+            else:
+                non_captures.append(move)
+
+        # Sort captures by value of captured piece (highest first)
+        captures.sort(key=lambda m: abs(self.piece_values.get(board.board[8 - int(m[3])][ord(m[2]) - ord('a')], 0)), reverse=True)
+
+        return captures + non_captures
+
     def get_best_move(self, board, difficulty=1.0):
-        # Use safe legal moves that don't leave king in check
+        """Fast, reliable AI that won't hang"""
+        import time
+        start_time = time.time()
+
         legal_moves = board.get_legal_moves_safe()
         if not legal_moves:
             return None
 
+        print(f"AI evaluating {len(legal_moves)} legal moves...")
+
+        # Check opening book first
+        current_fen = board.to_fen()
+        if current_fen in self.opening_book:
+            book_moves = self.opening_book[current_fen]
+            valid_book_moves = [move for move in book_moves if move in legal_moves]
+            if valid_book_moves:
+                chosen_move = random.choice(valid_book_moves)
+                print(f"AI using opening book move: {chosen_move}")
+                return chosen_move
+
+        # Fast evaluation approach - no deep search to avoid hanging
         best_move = None
         best_score = float('-inf') if board.turn == 'w' else float('inf')
 
-        # If in check, prioritize getting out of check
-        if board.is_in_check(board.turn):
-            print(f"{'White' if board.turn == 'w' else 'Black'} king is in check! Finding defensive move...")
-
-        for move in legal_moves:
+        # Evaluate each move quickly
+        for move in legal_moves[:15]:  # Limit to top 15 moves for speed
             temp_board = ChessBoard(board.to_fen())
             temp_board.make_move(move)
 
-            # Calculate score based on position evaluation
-            evaluation_score = self.evaluate_position(temp_board)
+            # Quick evaluation
+            score = self.evaluate_position(temp_board)
 
-            # Add tactical bonuses
-            score = evaluation_score
-
-            # Bonus for capturing pieces
-            from_col, from_row = ord(move[0]) - ord('a'), 8 - int(move[1])
+            # Bonus for captures
             to_col, to_row = ord(move[2]) - ord('a'), 8 - int(move[3])
             captured_piece = board.board[to_row][to_col]
             if captured_piece != '.':
-                capture_value = abs(self.piece_values[captured_piece])
-                score += capture_value * 10  # Bonus for captures
+                capture_value = self.piece_values[captured_piece.upper()]
+                score += capture_value if board.turn == 'w' else -capture_value
 
             # Bonus for getting out of check
             if board.is_in_check(board.turn) and not temp_board.is_in_check(board.turn):
-                score += 100  # High priority for escaping check
+                score += 500 if board.turn == 'w' else -500
 
             # Bonus for putting opponent in check
             opponent_color = 'b' if board.turn == 'w' else 'w'
             if temp_board.is_in_check(opponent_color):
-                score += 30  # Bonus for checking opponent
+                score += 100 if board.turn == 'w' else -100
 
-            # Use neural network for additional evaluation (scaled down)
-            if difficulty > 0:
-                input_data = self.board_to_input(temp_board)
-                model_score = self.model.predict(input_data, verbose=0)[0][0]
-                score += model_score * difficulty * 10
-
+            # Update best move
             if board.turn == 'w':
                 if score > best_score:
                     best_score = score
@@ -497,4 +752,35 @@ class ChessAI:
                     best_score = score
                     best_move = move
 
+            # Time limit check
+            if time.time() - start_time > 3.0:  # Max 3 seconds
+                break
+
+        # Fallback if no move found
+        if best_move is None:
+            best_move = self.get_quick_move(board, legal_moves)
+
+        elapsed_time = time.time() - start_time
+        print(f"AI selected move: {best_move} (time: {elapsed_time:.2f}s, score: {best_score:.1f})")
         return best_move
+
+    def get_quick_move(self, board, legal_moves):
+        """Quick move selection for fallback"""
+        # Prioritize captures
+        for move in legal_moves:
+            to_col, to_row = ord(move[2]) - ord('a'), 8 - int(move[3])
+            if board.board[to_row][to_col] != '.':
+                return move
+
+        # If no captures, prioritize center moves
+        center_moves = []
+        for move in legal_moves:
+            to_col, to_row = ord(move[2]) - ord('a'), 8 - int(move[3])
+            if 2 <= to_row <= 5 and 2 <= to_col <= 5:  # Center area
+                center_moves.append(move)
+
+        if center_moves:
+            return random.choice(center_moves)
+
+        # Otherwise, random legal move
+        return random.choice(legal_moves)
