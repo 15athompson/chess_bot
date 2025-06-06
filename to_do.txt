@@ -1,0 +1,19 @@
+
+web_app: (use augment code - see latest thread)
+
+- get undo to work
+
+
+- get train ai to work
+- get AI to work properly and be able to move all the pieces
+
+
+- get AI to be smarter
+
+- get AI to be able to play against itself
+
+
+---------------------------
+
+
+

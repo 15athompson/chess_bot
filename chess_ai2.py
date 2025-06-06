@@ -1,0 +1,188 @@
+import chess
+ import tensorflow as tf
+ import numpy as np
+ import random
+
+ class ChessAI:
+     def __init__(self):
+         self.model = self.create_model()
+         self.piece_values = {
+             chess.PAWN: 1,
+             chess.KNIGHT: 3,
+             chess.BISHOP: 3,
+             chess.ROOK: 5,
+             chess.QUEEN: 9,
+             chess.KING: 0
+         }
++        self.position_values = self.create_position_values()
+
+     def create_model(self):
+         model = tf.keras.Sequential([
+-            tf.keras.layers.Dense(128, activation='relu', input_shape=(64,)),
++            tf.keras.layers.Dense(256, activation='relu', input_shape=(773,)),
++            tf.keras.layers.Dense(128, activation='relu'),
+             tf.keras.layers.Dense(64, activation='relu'),
+-            tf.keras.layers.Dense(32, activation='relu'),
+             tf.keras.layers.Dense(1, activation='tanh')
+         ])
+         model.compile(optimizer='adam', loss='mse')
+         return model
+
+    def create_position_values(self):
++        return {
++            chess.PAWN: [
++                0,  0,  0,  0,  0,  0,  0,  0,
++                50, 50, 50, 50, 50, 50, 50, 50,
++                10, 10, 20, 30, 30, 20, 10, 10,
++                5,  5, 10, 25, 25, 10,  5,  5,
++                0,  0,  0, 20, 20,  0,  0,  0,
++                5, -5,-10,  0,  0,-10, -5,  5,
++                5, 10, 10,-20,-20, 10, 10,  5,
++                0,  0,  0,  0,  0,  0,  0,  0
++            ],
++            chess.KNIGHT: [
+                -50,-40,-30,-30,-30,-30,-40,-50,
+                -40,-20,  0,  0,  0,  0,-20,-40,
+                -30,  0, 10, 15, 15, 10,  0,-30,
+                -30,  5, 15, 20, 20, 15,  5,-30,
+                -30,  0, 15, 20, 20, 15,  0,-30,
+                -30,  5, 10, 15, 15, 10,  5,-30,
+                -40,-20,  0,  5,  5,  0,-20,-40,
+                -50,-40,-30,-30,-30,-30,-40,-50,
+            ],
+            chess.BISHOP: [
+                -20,-10,-10,-10,-10,-10,-10,-20,
+                -10,  0,  0,  0,  0,  0,  0,-10,
+                -10,  0,  5, 10, 10,  5,  0,-10,
+                -10,  5,  5, 10, 10,  5,  5,-10,
+                -10,  0, 10, 10, 10, 10,  0,-10,
+                -10, 10, 10, 10, 10, 10, 10,-10,
+                -10,  5,  0,  0,  0,  0,  5,-10,
+                -20,-10,-10,-10,-10,-10,-10,-20,
+            ],
+            chess.ROOK: [
+                0,  0,  0,  0,  0,  0,  0,  0,
+                5, 10, 10, 10, 10, 10, 10,  5,
+                -5,  0,  0,  0,  0,  0,  0, -5,
+                -5,  0,  0,  0,  0,  0,  0, -5,
+                -5,  0,  0,  0,  0,  0,  0, -5,
+                -5,  0,  0,  0,  0,  0,  0, -5,
+                -5,  0,  0,  0,  0,  0,  0, -5,
+                0,  0,  0,  5,  5,  0,  0,  0
+            ],
+            chess.QUEEN: [
+                -20,-10,-10, -5, -5,-10,-10,-20,
+                -10,  0,  0,  0,  0,  0,  0,-10,
+                -10,  0,  5,  5,  5,  5,  0,-10,
+                -5,  0,  5,  5,  5,  5,  0, -5,
+                0,  0,  5,  5,  5,  5,  0, -5,
+                -10,  5,  5,  5,  5,  5,  0,-10,
+                -10,  0,  5,  0,  0,  0,  0,-10,
+                -20,-10,-10, -5, -5,-10,-10,-20
+            ],
+            chess.KING: [
+                -30,-40,-40,-50,-50,-40,-40,-30,
+                -30,-40,-40,-50,-50,-40,-40,-30,
+                -30,-40,-40,-50,-50,-40,-40,-30,
+                -30,-40,-40,-50,-50,-40,-40,-30,
+                -20,-30,-30,-40,-40,-30,-30,-20,
+                -10,-20,-20,-20,-20,-20,-20,-10,
+                20, 20,  0,  0,  0,  0, 20, 20,
+                20, 30, 10,  0,  0, 10, 30, 20
+            ]
+        }
+
+     def board_to_input(self, board):
+-        input_data = np.zeros(64, dtype=np.float32)
+        input_data = np.zeros(773, dtype=np.float32)
+         for i in range(64):
+             piece = board.piece_at(i)
+             if piece is not None:
+-                value = self.piece_values[piece.piece_type] * (1 if piece.color == chess.WHITE else -1)
+-                input_data[i] = value / 9  # Normalize the value
+                piece_type = piece.piece_type
+                color = int(piece.color)
+                input_data[i * 12 + (piece_type - 1) * 2 + color] = 1
+
+        # Add extra features
+        input_data[768] = int(board.turn)
+        input_data[769] = int(board.has_kingside_castling_rights(chess.WHITE))
+        input_data[770] = int(board.has_queenside_castling_rights(chess.WHITE))
+        input_data[771] = int(board.has_kingside_castling_rights(chess.BLACK))
+        input_data[772] = int(board.has_queenside_castling_rights(chess.BLACK))
+
+         return input_data.reshape(1, -1)
+
+     def evaluate_position(self, board):
+         score = 0
+         for square in chess.SQUARES:
+             piece = board.piece_at(square)
+             if piece is not None:
+                 value = self.piece_values[piece.piece_type]
+                position_value = self.position_values[piece.piece_type][square]
+                 if piece.color == chess.WHITE:
+-                    score += value
+                    score += value + position_value / 100
+                 else:
+-                    score -= value
+                    score -= value + position_value / 100
+         return score
+
+     def train(self, num_games=1000):
+         for _ in range(num_games):
+             board = chess.Board()
+             while not board.is_game_over():
+                 legal_moves = list(board.legal_moves)
+                 move = random.choice(legal_moves)
+                 board.push(move)
+                 
+                 input_data = self.board_to_input(board)
+                 target = self.evaluate_position(board) / 100  # Normalize the evaluation
+                 self.model.fit(input_data, np.array([target]), verbose=0)
+
+     def get_best_move(self, board, difficulty=1.0):
+         legal_moves = list(board.legal_moves)
+         best_move = None
+         best_score = float('-inf') if board.turn == chess.WHITE else float('inf')
+
+         for move in legal_moves:
+             board.push(move)
+             input_data = self.board_to_input(board)
+             model_score = self.model.predict(input_data)[0][0]
+             evaluation_score = self.evaluate_position(board) / 100
+             score = model_score * difficulty + evaluation_score * (1 - difficulty)
+             board.pop()
+
+             if board.turn == chess.WHITE:
+                 if score > best_score:
+                     best_score = score
+                     best_move = move
+             else:
+                 if score < best_score:
+                     best_score = score
+                     best_move = move
+
+-        return best_move+        return best_move
+
+    def self_play_training(self, num_games=100):
+        for _ in range(num_games):
+            board = chess.Board()
+            game_history = []
+            
+            while not board.is_game_over():
+                move = self.get_best_move(board)
+                game_history.append((self.board_to_input(board), self.evaluate_position(board)))
+                board.push(move)
+            
+            result = board.result()
+            if result == '1-0':
+                reward = 1
+            elif result == '0-1':
+                reward = -1
+            else:
+                reward = 0
+            
+            for state, evaluation in reversed(game_history):
+                target = reward + 0.9 * evaluation  # Discount factor of 0.9
+                self.model.fit(state, np.array([target]), verbose=0)
+                reward = target  # The current state's target becomes the next state's reward

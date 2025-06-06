@@ -1,0 +1,62 @@
+Explanation:
+
+evaluate_board(board):
+
+This function assigns a numerical score to the current board position.
+It iterates through all squares on the board.
+If a piece is found, it adds or subtracts its value to the score based on its color (positive for white, negative for black).
+A higher score indicates a better position for white.
+minimax(board, depth, alpha, beta, maximizing_player):
+
+This is the core of the chess AI, implementing the minimax algorithm with alpha-beta pruning for efficient move searching.
+depth: Limits how many moves ahead the AI looks.
+alpha and beta: Used for alpha-beta pruning, which speeds up the search by eliminating branches that won't lead to a better outcome.
+maximizing_player: Indicates whether the current player aims to maximize (white) or minimize (black) the score.
+The function recursively explores possible moves, simulating turns for both players.
+It returns the best move found and its associated score.
+get_ai_move(board, depth):
+
+This function acts as an interface to the minimax function.
+It takes the current board and desired search depth as input.
+It calls minimax to get the best move and returns that move.
+play_game():
+
+This function sets up and runs the chess game between the two AIs.
+It creates a chess board (chess.Board()).
+It enters a loop that continues until the game is over (board.is_game_over()).
+In each iteration:
+It gets the AI's move using get_ai_move().
+It makes the move on the board (board.push(move)).
+It prints the move and the current board state.
+After the game ends, it prints the result (white wins, black wins, or draw).
+How to Run:
+
+Save the code as a Python file (e.g., chess_ai.py).
+Open a terminal or command prompt.
+Run the file using python chess_ai.py.
+The AI will play against itself, printing the moves and the final result. You can adjust the depth variable in play_game() to control the AI's thinking time and strength (higher depth = stronger but slower).
+
+------------------------
+
+Explanation of Enhancements:
+Sophisticated Evaluation Function:
+
+The evaluation function now considers positional advantages using piece-specific tables. These tables assign values to squares based on their strategic importance.
+Deeper Search Depths:
+
+The search depth has been increased to 4. You can further increase this value, but it will significantly slow down the AI's move generation.
+Transposition Table:
+
+A transposition table is used to store and reuse previously computed positions, reducing redundant calculations and improving performance.
+Alpha-Beta Pruning:
+
+The minimax function with alpha-beta pruning is enhanced to work with the transposition table.
+Time Management:
+
+While not explicitly implemented here, you can add a time management system to ensure the AI makes moves within a specified time limit.
+Quiescence Search:
+
+Quiescence search can be added to prevent the AI from making short-sighted moves. This involves extending the search depth for captures and checks.
+Opening Book:
+
+An opening book can be integrated to provide the AI with precomputed moves for the opening phase. This can be done using a database of common openings.
