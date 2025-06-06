@@ -56,13 +56,21 @@ class ChessBoard:
         from_col, from_row = ord(move[0]) - ord('a'), 8 - int(move[1])
         to_col, to_row = ord(move[2]) - ord('a'), 8 - int(move[3])
         piece = self.board[from_row][from_col]
+
+        # Handle pawn promotion
+        if piece.lower() == 'p':
+            # Check if pawn reaches the end of the board
+            if (piece == 'P' and to_row == 0) or (piece == 'p' and to_row == 7):
+                # Promote to queen by default
+                piece = 'Q' if piece == 'P' else 'q'
+
         self.board[from_row][from_col] = '.'
         self.board[to_row][to_col] = piece
         self.turn = 'b' if self.turn == 'w' else 'w'
 
     def is_game_over(self):
-        # Check if there are any legal moves available
-        legal_moves = self.get_legal_moves()
+        # Get legal moves that don't leave king in check
+        legal_moves = self.get_legal_moves_safe()
         if not legal_moves:
             return True
 
@@ -83,16 +91,24 @@ class ChessBoard:
         if not self.is_game_over():
             return '*'
 
-        # Check if current player has legal moves
-        legal_moves = self.get_legal_moves()
+        # Get legal moves that don't leave king in check
+        legal_moves = self.get_legal_moves_safe()
         if not legal_moves:
-            # No legal moves - could be checkmate or stalemate
-            # For simplicity, we'll call it a draw
-            return '1/2-1/2'
+            # No legal moves - check if it's checkmate or stalemate
+            if self.is_in_check(self.turn):
+                # King is in check and no legal moves = checkmate
+                if self.turn == 'w':
+                    return '0-1'  # Black wins
+                else:
+                    return '1-0'  # White wins
+            else:
+                # King not in check but no legal moves = stalemate
+                return '1/2-1/2'
 
         return '*'
 
     def get_legal_moves(self):
+        """Get all pseudo-legal moves (may leave king in check)"""
         moves = []
         for row in range(8):
             for col in range(8):
@@ -100,6 +116,17 @@ class ChessBoard:
                 if (piece.isupper() and self.turn == 'w') or (piece.islower() and self.turn == 'b'):
                     moves.extend(self.get_piece_moves(row, col))
         return moves
+
+    def get_legal_moves_safe(self):
+        """Get all legal moves that don't leave king in check"""
+        pseudo_legal_moves = self.get_legal_moves()
+        legal_moves = []
+
+        for move in pseudo_legal_moves:
+            if self.is_legal_move(move):
+                legal_moves.append(move)
+
+        return legal_moves
 
     def get_piece_moves(self, row, col):
         piece = self.board[row][col].lower()
@@ -120,9 +147,26 @@ class ChessBoard:
     def get_pawn_moves(self, row, col):
         moves = []
         direction = -1 if self.turn == 'w' else 1
+        start_row = 6 if self.turn == 'w' else 1
+
+        # Forward move
         if 0 <= row + direction < 8:
             if self.board[row + direction][col] == '.':
                 moves.append(f"{chr(col + ord('a'))}{8-row}{chr(col + ord('a'))}{8-(row+direction)}")
+
+                # Double move from starting position
+                if row == start_row and 0 <= row + 2 * direction < 8:
+                    if self.board[row + 2 * direction][col] == '.':
+                        moves.append(f"{chr(col + ord('a'))}{8-row}{chr(col + ord('a'))}{8-(row+2*direction)}")
+
+        # Diagonal captures
+        for dc in [-1, 1]:
+            new_row, new_col = row + direction, col + dc
+            if 0 <= new_row < 8 and 0 <= new_col < 8:
+                target = self.board[new_row][new_col]
+                if target != '.' and ((self.turn == 'w' and target.islower()) or (self.turn == 'b' and target.isupper())):
+                    moves.append(f"{chr(col + ord('a'))}{8-row}{chr(new_col + ord('a'))}{8-new_row}")
+
         return moves
 
     def get_rook_moves(self, row, col):
@@ -219,6 +263,69 @@ class ChessBoard:
         """Check if there are moves that can be undone"""
         return len(self.board_history) > 0
 
+    def find_king(self, color):
+        """Find the king position for the given color"""
+        king_piece = 'K' if color == 'w' else 'k'
+        for row in range(8):
+            for col in range(8):
+                if self.board[row][col] == king_piece:
+                    return (row, col)
+        return None
+
+    def is_square_attacked(self, row, col, by_color):
+        """Check if a square is attacked by the given color"""
+        # Temporarily switch turn to check attacks
+        original_turn = self.turn
+        self.turn = by_color
+
+        # Get all possible moves for the attacking color
+        for r in range(8):
+            for c in range(8):
+                piece = self.board[r][c]
+                if (piece.isupper() and by_color == 'w') or (piece.islower() and by_color == 'b'):
+                    moves = self.get_piece_moves(r, c)
+                    for move in moves:
+                        # Parse move to get target square
+                        target_col = ord(move[2]) - ord('a')
+                        target_row = 8 - int(move[3])
+                        if target_row == row and target_col == col:
+                            self.turn = original_turn
+                            return True
+
+        self.turn = original_turn
+        return False
+
+    def is_in_check(self, color):
+        """Check if the king of the given color is in check"""
+        king_pos = self.find_king(color)
+        if king_pos is None:
+            return False
+
+        opponent_color = 'b' if color == 'w' else 'w'
+        return self.is_square_attacked(king_pos[0], king_pos[1], opponent_color)
+
+    def is_legal_move(self, move):
+        """Check if a move is legal (doesn't leave king in check)"""
+        # Make the move temporarily
+        from_col, from_row = ord(move[0]) - ord('a'), 8 - int(move[1])
+        to_col, to_row = ord(move[2]) - ord('a'), 8 - int(move[3])
+
+        original_piece = self.board[from_row][from_col]
+        captured_piece = self.board[to_row][to_col]
+
+        # Make the move
+        self.board[from_row][from_col] = '.'
+        self.board[to_row][to_col] = original_piece
+
+        # Check if king is in check after the move
+        in_check = self.is_in_check(self.turn)
+
+        # Undo the move
+        self.board[from_row][from_col] = original_piece
+        self.board[to_row][to_col] = captured_piece
+
+        return not in_check
+
 class ChessAI:
     def __init__(self):
         self.model = self.create_model()
@@ -247,10 +354,45 @@ class ChessAI:
 
     def evaluate_position(self, board):
         score = 0
+
+        # Material evaluation
         for row in board.board:
             for piece in row:
                 if piece != '.':
                     score += self.piece_values[piece]
+
+        # King safety evaluation
+        white_king_pos = board.find_king('w')
+        black_king_pos = board.find_king('b')
+
+        if white_king_pos:
+            # Penalty for white king being in check
+            if board.is_in_check('w'):
+                score -= 50
+            # Penalty for exposed king (simplified)
+            king_row, king_col = white_king_pos
+            if king_row < 6:  # King moved forward
+                score -= 10
+
+        if black_king_pos:
+            # Penalty for black king being in check
+            if board.is_in_check('b'):
+                score += 50
+            # Penalty for exposed king (simplified)
+            king_row, king_col = black_king_pos
+            if king_row > 1:  # King moved forward
+                score += 10
+
+        # Center control bonus
+        center_squares = [(3, 3), (3, 4), (4, 3), (4, 4)]
+        for row, col in center_squares:
+            piece = board.board[row][col]
+            if piece != '.':
+                if piece.isupper():
+                    score += 5  # White controls center
+                else:
+                    score -= 5  # Black controls center
+
         return score
 
     def train_self_play(self, num_games=100):
@@ -266,7 +408,7 @@ class ChessAI:
 
             while not board.is_game_over() and move_count < max_moves:
                 input_data = self.board_to_input(board)
-                legal_moves = board.get_legal_moves()
+                legal_moves = board.get_legal_moves_safe()  # Use safe legal moves
 
                 if not legal_moves:
                     break  # No legal moves available
@@ -301,20 +443,50 @@ class ChessAI:
         print(f"Training completed! Trained on {num_games} games.")
 
     def get_best_move(self, board, difficulty=1.0):
-        legal_moves = board.get_legal_moves()
+        # Use safe legal moves that don't leave king in check
+        legal_moves = board.get_legal_moves_safe()
         if not legal_moves:
             return None
-        
+
         best_move = None
         best_score = float('-inf') if board.turn == 'w' else float('inf')
+
+        # If in check, prioritize getting out of check
+        if board.is_in_check(board.turn):
+            print(f"{'White' if board.turn == 'w' else 'Black'} king is in check! Finding defensive move...")
 
         for move in legal_moves:
             temp_board = ChessBoard(board.to_fen())
             temp_board.make_move(move)
-            input_data = self.board_to_input(temp_board)
-            model_score = self.model.predict(input_data, verbose=0)[0][0]
-            evaluation_score = self.evaluate_position(temp_board) / 20
-            score = model_score * difficulty + evaluation_score * (1 - difficulty)
+
+            # Calculate score based on position evaluation
+            evaluation_score = self.evaluate_position(temp_board)
+
+            # Add tactical bonuses
+            score = evaluation_score
+
+            # Bonus for capturing pieces
+            from_col, from_row = ord(move[0]) - ord('a'), 8 - int(move[1])
+            to_col, to_row = ord(move[2]) - ord('a'), 8 - int(move[3])
+            captured_piece = board.board[to_row][to_col]
+            if captured_piece != '.':
+                capture_value = abs(self.piece_values[captured_piece])
+                score += capture_value * 10  # Bonus for captures
+
+            # Bonus for getting out of check
+            if board.is_in_check(board.turn) and not temp_board.is_in_check(board.turn):
+                score += 100  # High priority for escaping check
+
+            # Bonus for putting opponent in check
+            opponent_color = 'b' if board.turn == 'w' else 'w'
+            if temp_board.is_in_check(opponent_color):
+                score += 30  # Bonus for checking opponent
+
+            # Use neural network for additional evaluation (scaled down)
+            if difficulty > 0:
+                input_data = self.board_to_input(temp_board)
+                model_score = self.model.predict(input_data, verbose=0)[0][0]
+                score += model_score * difficulty * 10
 
             if board.turn == 'w':
                 if score > best_score:

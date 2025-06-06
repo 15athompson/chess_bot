@@ -29,16 +29,35 @@ def make_move():
     difficulty = float(request.json.get('difficulty', 1.0))
     try:
         board.make_move(move)
-        ai_move = ai.get_best_move(board, difficulty)
-        if ai_move:
-            board.make_move(ai_move)
-        response = {
-            'fen': board.to_fen(),
-            'ai_move': ai_move,
-            'game_over': board.is_game_over(),
-            'result': board.get_result() if board.is_game_over() else None,
-            'evaluation': ai.evaluate_position(board)
-        }
+        print(f"Player move: {move}")
+
+        # Check if game is over after player move
+        if board.is_game_over():
+            result = board.get_result()
+            print(f"Game over after player move! Result: {result}")
+            response = {
+                'fen': board.to_fen(),
+                'ai_move': None,
+                'game_over': True,
+                'result': result,
+                'evaluation': ai.evaluate_position(board)
+            }
+        else:
+            # Get AI move
+            ai_move = ai.get_best_move(board, difficulty)
+            if ai_move:
+                print(f"AI move: {ai_move}")
+                board.make_move(ai_move)
+            else:
+                print("AI has no legal moves!")
+
+            response = {
+                'fen': board.to_fen(),
+                'ai_move': ai_move,
+                'game_over': board.is_game_over(),
+                'result': board.get_result() if board.is_game_over() else None,
+                'evaluation': ai.evaluate_position(board)
+            }
         print("Sending response:", response)
         return jsonify(response)
     except ValueError as e:
@@ -81,7 +100,7 @@ def background_training(num_games):
 
             while not board.is_game_over() and move_count < max_moves:
                 input_data = ai.board_to_input(board)
-                legal_moves = board.get_legal_moves()
+                legal_moves = board.get_legal_moves_safe()  # Use safe legal moves
 
                 if not legal_moves:
                     break
@@ -136,7 +155,7 @@ def get_training_status():
 def get_legal_moves():
     fen = request.json['fen']
     board = ChessBoard(fen)
-    legal_moves = board.get_legal_moves()
+    legal_moves = board.get_legal_moves_safe()  # Use safe legal moves
     return jsonify({'legal_moves': legal_moves})
 
 @app.route('/undo_move', methods=['POST'])
