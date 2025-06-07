@@ -170,6 +170,85 @@ def get_legal_moves():
     legal_moves = board.get_legal_moves_safe()  # Use safe legal moves
     return jsonify({'legal_moves': legal_moves})
 
+@app.route('/ai_move', methods=['POST'])
+def ai_move():
+    """Get AI move for AI vs AI mode"""
+    try:
+        fen = request.json['fen']
+        difficulty = float(request.json.get('difficulty', 0.8))
+
+        print(f"AI move requested for FEN: {fen}")
+
+        # Create temporary board from FEN
+        temp_board = ChessBoard(fen)
+
+        # Validate that the board loaded correctly
+        if not temp_board:
+            print("Failed to create board from FEN")
+            return jsonify({'error': 'Invalid FEN'}), 400
+
+        # Get legal moves to verify board state
+        legal_moves = temp_board.get_legal_moves_safe()
+        print(f"Legal moves available: {len(legal_moves)}")
+
+        if not legal_moves:
+            print("No legal moves available - game should be over")
+            return jsonify({'error': 'No legal moves available'}), 400
+
+        # Get AI move with timeout protection
+        move = None
+        try:
+            move = ai.get_best_move(temp_board, difficulty)
+            print(f"AI generated move: {move}")
+        except Exception as ai_error:
+            print(f"AI move generation failed: {ai_error}")
+            # Fallback to random legal move
+            move = random.choice(legal_moves)
+            print(f"Using random fallback move: {move}")
+
+        if move and move in legal_moves:
+            # Validate move is actually legal
+            try:
+                # Make the move on temporary board to get evaluation
+                temp_board.make_move(move)
+                evaluation = ai.evaluate_position(temp_board)
+
+                response = {
+                    'move': move,
+                    'evaluation': evaluation,
+                    'fen': temp_board.to_fen()
+                }
+                print(f"Returning valid move: {move}")
+                return jsonify(response)
+            except Exception as move_error:
+                print(f"Failed to make move {move}: {move_error}")
+                # Try a different random move
+                remaining_moves = [m for m in legal_moves if m != move]
+                if remaining_moves:
+                    fallback_move = random.choice(remaining_moves)
+                    print(f"Trying fallback move: {fallback_move}")
+                    try:
+                        temp_board = ChessBoard(fen)  # Reset board
+                        temp_board.make_move(fallback_move)
+                        evaluation = ai.evaluate_position(temp_board)
+                        response = {
+                            'move': fallback_move,
+                            'evaluation': evaluation,
+                            'fen': temp_board.to_fen()
+                        }
+                        return jsonify(response)
+                    except:
+                        pass
+
+        print(f"All move attempts failed. Move: {move}, Legal moves: {legal_moves[:5]}")
+        return jsonify({'error': f'Generated invalid move: {move}'}), 400
+
+    except Exception as e:
+        print(f"Error in ai_move: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'AI move failed: {str(e)}'}), 500
+
 @app.route('/undo_move', methods=['POST'])
 def undo_move():
     print("Received undo_move request")

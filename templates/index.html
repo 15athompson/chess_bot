@@ -9,6 +9,56 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .game-mode-selection {
+            text-align: center;
+            margin: 40px 0;
+        }
+        .mode-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 30px;
+        }
+        .mode-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 30px;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: transform 0.3s, box-shadow 0.3s;
+            min-width: 200px;
+        }
+        .mode-btn:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        .mode-btn h3 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+        .mode-btn p {
+            margin: 0;
+            opacity: 0.9;
+        }
         #board {
             width: 400px;
             margin: 20px auto;
@@ -26,6 +76,14 @@
             margin: 0 10px;
             padding: 10px 20px;
             font-size: 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
         }
         #evaluation {
             text-align: center;
@@ -36,32 +94,103 @@
             text-align: center;
             margin-top: 20px;
         }
-        #difficultySlider {
+        #difficultySlider, #gameSpeed {
             width: 200px;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #gameMode {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 5px;
+            color: #1976d2;
+        }
+        #aiStatus {
+            text-align: center;
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
         }
     </style>
 </head>
 <body>
-    <div id="board"></div>
-    <div id="message"></div>
-    <div id="evaluation"></div>
-    <div class="difficulty-container">
-        <label for="difficultySlider">AI Difficulty: </label>
-        <input type="range" id="difficultySlider" min="0" max="1" step="0.1" value="0.8">
-        <span id="difficultyValue">0.8 (Master)</span>
+    <!-- Game Mode Selection Menu -->
+    <div id="gameModeMenu" class="container">
+        <h1>Chess AI Bot</h1>
+        <div class="game-mode-selection">
+            <h2>Select Game Mode</h2>
+            <div class="mode-buttons">
+                <button id="humanVsAI" class="mode-btn">
+                    <h3>👤 Human vs AI</h3>
+                    <p>Play against the AI opponent</p>
+                </button>
+                <button id="aiVsAI" class="mode-btn">
+                    <h3>🤖 AI vs AI</h3>
+                    <p>Watch two AIs play against each other</p>
+                </button>
+            </div>
+        </div>
     </div>
-    <div class="button-container">
-        <button id="newGameBtn">New Game</button>
-        <button id="trainAIBtn">Train AI</button>
-        <button id="undoBtn">Undo Move</button>
+
+    <!-- Game Interface (hidden initially) -->
+    <div id="gameInterface" class="container" style="display: none;">
+        <h1>Chess AI Bot</h1>
+        <div id="gameMode"></div>
+
+        <div class="controls">
+            <button id="newGameBtn">New Game</button>
+            <button id="undoBtn">Undo Move</button>
+            <button id="trainAIBtn">Train AI</button>
+            <button id="backToMenu">Back to Menu</button>
+        </div>
+
+        <div class="difficulty-container">
+            <label for="difficultySlider">AI Difficulty: </label>
+            <input type="range" id="difficultySlider" min="0" max="1" step="0.1" value="0.8">
+            <span id="difficultyValue">0.8 (Master)</span>
+        </div>
+
+        <!-- AI vs AI specific controls -->
+        <div id="aiVsAiControls" style="display: none;">
+            <div class="controls">
+                <button id="pauseGame">⏸️ Pause</button>
+                <button id="resumeGame">▶️ Resume</button>
+                <div class="speed-control">
+                    <label for="gameSpeed">Game Speed:</label>
+                    <input type="range" id="gameSpeed" min="500" max="3000" step="250" value="1500">
+                    <span id="speedValue">1.5s</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="board"></div>
+        <div id="message"></div>
+        <div id="evaluation"></div>
+        <div id="aiStatus"></div>
     </div>
     <script>
         var board = null;
         var game = new Chess();
         var difficulty = 0.8;
+        var gameMode = 'human'; // 'human' or 'ai'
+        var aiVsAiInterval = null;
+        var gameSpeed = 1500; // milliseconds
+        var isPaused = false;
 
         function onDragStart(source, piece, position, orientation) {
             if (game.game_over()) return false;
+            if (gameMode === 'ai') return false; // No dragging in AI vs AI mode
             if (piece.search(/^b/) !== -1) return false;
         }
 
@@ -78,23 +207,15 @@
 
                     if (data.game_over) {
                         $('#message').text('Game Over. Result: ' + data.result);
+                        $('#aiStatus').text('🧠 AI is learning from this game...');
+                        setTimeout(() => {
+                            $('#aiStatus').text('✅ AI has learned from the game and improved!');
+                        }, 2000);
                     } else {
                         $('#message').text('AI moved: ' + data.ai_move);
+                        $('#aiStatus').text('');
                     }
-                    // Format evaluation score for better readability
-                    let evalText = 'Evaluation: ';
-                    if (data.evaluation > 100) {
-                        evalText += '+' + (data.evaluation / 100).toFixed(1) + ' (winning)';
-                    } else if (data.evaluation < -100) {
-                        evalText += (data.evaluation / 100).toFixed(1) + ' (losing)';
-                    } else if (data.evaluation > 50) {
-                        evalText += '+' + (data.evaluation / 100).toFixed(1) + ' (good)';
-                    } else if (data.evaluation < -50) {
-                        evalText += (data.evaluation / 100).toFixed(1) + ' (bad)';
-                    } else {
-                        evalText += (data.evaluation / 100).toFixed(1) + ' (equal)';
-                    }
-                    $('#evaluation').text(evalText);
+                    updateEvaluation(data.evaluation);
                 },
                 error: function(jqXHR, textStatus, errorThrown) {
                     console.error('Error:', textStatus, errorThrown);
@@ -141,6 +262,148 @@
             $('#difficultyValue').text(difficulty.toFixed(1) + skillLevel);
         }
 
+        function makeAIMove() {
+            if (game.game_over() || isPaused) return;
+
+            $('#message').text('AI is thinking...');
+            $.ajax({
+                url: '/ai_move',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    fen: game.fen(),
+                    difficulty: difficulty
+                }),
+                success: function(data) {
+                    if (data.move) {
+                        // Convert move format from "e2e4" to {from: "e2", to: "e4"}
+                        let moveObj = {
+                            from: data.move.substring(0, 2),
+                            to: data.move.substring(2, 4),
+                            promotion: 'q' // Default promotion to queen
+                        };
+
+                        console.log('Attempting AI move:', moveObj, 'on position:', game.fen());
+
+                        // Validate move before attempting
+                        let possibleMoves = game.moves({verbose: true});
+                        let isValidMove = possibleMoves.some(move =>
+                            move.from === moveObj.from && move.to === moveObj.to
+                        );
+
+                        if (isValidMove) {
+                            let move = game.move(moveObj);
+                            if (move) {
+                                // Update the visual board
+                                board.position(game.fen());
+
+                                if (game.game_over()) {
+                                    $('#message').text('Game Over! Result: ' + getGameResult());
+                                    clearInterval(aiVsAiInterval);
+                                    $('#aiStatus').text('🏁 Game finished!');
+                                } else {
+                                    $('#message').text('AI moved: ' + data.move);
+                                    updateEvaluation(data.evaluation);
+                                }
+                            } else {
+                                console.error('Move failed despite validation:', data.move);
+                                handleInvalidMove(data.move);
+                            }
+                        } else {
+                            console.error('Invalid move generated:', data.move, 'Legal moves:', possibleMoves.map(m => m.from + m.to));
+                            handleInvalidMove(data.move);
+                        }
+                    } else {
+                        console.error('No move returned from AI');
+                        handleInvalidMove('no move');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('AI move error:', error);
+                    $('#message').text('AI move failed - ' + error);
+                    handleInvalidMove('network error');
+                }
+            });
+        }
+
+        function handleInvalidMove(invalidMove) {
+            console.log('Handling invalid move:', invalidMove);
+            console.log('Current game FEN:', game.fen());
+            console.log('Current legal moves:', game.moves());
+
+            $('#message').text('Invalid AI move: ' + invalidMove + ' - Making random move');
+
+            // Get legal moves and make a random one
+            let legalMoves = game.moves();
+            if (legalMoves.length > 0) {
+                let randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
+                console.log('Making random legal move:', randomMove);
+
+                let move = game.move(randomMove);
+                if (move) {
+                    board.position(game.fen());
+                    $('#message').text('AI made random move: ' + randomMove + ' (recovered from error)');
+
+                    if (game.game_over()) {
+                        $('#message').text('Game Over! Result: ' + getGameResult());
+                        clearInterval(aiVsAiInterval);
+                        $('#aiStatus').text('🏁 Game finished!');
+                    }
+                } else {
+                    console.error('Even random move failed!');
+                    $('#message').text('AI completely stuck - stopping game');
+                    clearInterval(aiVsAiInterval);
+                }
+            } else {
+                console.log('No legal moves available - game should be over');
+                $('#message').text('Game Over! No legal moves available');
+                clearInterval(aiVsAiInterval);
+                $('#aiStatus').text('🏁 Game finished!');
+            }
+        }
+
+        function startAIvsAI() {
+            if (aiVsAiInterval) clearInterval(aiVsAiInterval);
+            isPaused = false;
+
+            aiVsAiInterval = setInterval(function() {
+                if (!isPaused && !game.game_over()) {
+                    makeAIMove();
+                } else if (game.game_over()) {
+                    clearInterval(aiVsAiInterval);
+                }
+            }, gameSpeed);
+        }
+
+        function getGameResult() {
+            if (game.in_checkmate()) {
+                return game.turn() === 'w' ? 'Black wins by checkmate' : 'White wins by checkmate';
+            } else if (game.in_stalemate()) {
+                return 'Draw by stalemate';
+            } else if (game.in_threefold_repetition()) {
+                return 'Draw by repetition';
+            } else if (game.insufficient_material()) {
+                return 'Draw by insufficient material';
+            }
+            return 'Game over';
+        }
+
+        function updateEvaluation(evaluation) {
+            let evalText = 'Evaluation: ';
+            if (evaluation > 100) {
+                evalText += '+' + (evaluation / 100).toFixed(1) + ' (winning)';
+            } else if (evaluation < -100) {
+                evalText += (evaluation / 100).toFixed(1) + ' (losing)';
+            } else if (evaluation > 50) {
+                evalText += '+' + (evaluation / 100).toFixed(1) + ' (good)';
+            } else if (evaluation < -50) {
+                evalText += (evaluation / 100).toFixed(1) + ' (bad)';
+            } else {
+                evalText += (evaluation / 100).toFixed(1) + ' (equal)';
+            }
+            $('#evaluation').text(evalText);
+        }
+
         $(document).ready(function() {
             var config = {
                 draggable: true,
@@ -152,17 +415,100 @@
             };
             board = Chessboard('board', config);
 
-            $('#newGameBtn').click(function() {
+            // Game mode selection
+            $('#humanVsAI').click(function() {
+                gameMode = 'human';
+                $('#gameModeMenu').hide();
+                $('#gameInterface').show();
+                $('#gameMode').text('🎮 Human vs AI Mode').show();
+                $('#aiVsAiControls').hide();
+
+                // Enable dragging in Human vs AI mode
+                var config = {
+                    draggable: true,
+                    position: 'start',
+                    onDragStart: onDragStart,
+                    onDrop: onDrop,
+                    onSnapEnd: onSnapEnd,
+                    pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+                };
+                board = Chessboard('board', config);
+
+                startNewGame();
+            });
+
+            $('#aiVsAI').click(function() {
+                gameMode = 'ai';
+                $('#gameModeMenu').hide();
+                $('#gameInterface').show();
+                $('#gameMode').text('🤖 AI vs AI Mode - Watch the battle!').show();
+                $('#aiVsAiControls').show();
+
+                // Disable dragging in AI vs AI mode
+                var config = {
+                    draggable: false,
+                    position: game.fen(),
+                    pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+                };
+                board = Chessboard('board', config);
+
+                startNewGame();
+                setTimeout(startAIvsAI, 1000); // Start AI vs AI after 1 second
+            });
+
+            $('#backToMenu').click(function() {
+                if (aiVsAiInterval) clearInterval(aiVsAiInterval);
+                $('#gameInterface').hide();
+                $('#gameModeMenu').show();
+                game = new Chess();
+                board.position('start');
+            });
+
+            // AI vs AI controls
+            $('#pauseGame').click(function() {
+                isPaused = true;
+                $('#aiStatus').text('⏸️ Game paused');
+            });
+
+            $('#resumeGame').click(function() {
+                isPaused = false;
+                $('#aiStatus').text('▶️ Game resumed');
+            });
+
+            $('#gameSpeed').on('input', function() {
+                gameSpeed = parseInt($(this).val());
+                $('#speedValue').text((gameSpeed / 1000).toFixed(1) + 's');
+
+                // Restart interval with new speed
+                if (gameMode === 'ai' && aiVsAiInterval) {
+                    clearInterval(aiVsAiInterval);
+                    startAIvsAI();
+                }
+            });
+
+            function startNewGame() {
+                if (aiVsAiInterval) clearInterval(aiVsAiInterval);
+                isPaused = false;
+
                 $.post('/new_game', function(data) {
                     game = new Chess();
                     game.load(data.fen);
                     board.position(data.fen);
                     $('#message').text('New game started.');
                     $('#evaluation').text('');
+                    $('#aiStatus').text('');
+                    console.log('New game started with FEN:', data.fen);
                 }).fail(function(jqXHR, textStatus, errorThrown) {
                     console.error('Error starting new game:', textStatus, errorThrown);
                     $('#message').text('Error starting new game. Please try again.');
                 });
+            }
+
+            $('#newGameBtn').click(function() {
+                startNewGame();
+                if (gameMode === 'ai') {
+                    setTimeout(startAIvsAI, 1000);
+                }
             });
 
             $('#trainAIBtn').click(function() {
@@ -218,20 +564,7 @@
                         game.load(data.fen);
                         board.position(data.fen);
                         $('#message').text('Move(s) undone. Undid ' + data.undone_moves + ' move(s).');
-                        // Format evaluation score for undo
-                        let evalText = 'Evaluation: ';
-                        if (data.evaluation > 100) {
-                            evalText += '+' + (data.evaluation / 100).toFixed(1) + ' (winning)';
-                        } else if (data.evaluation < -100) {
-                            evalText += (data.evaluation / 100).toFixed(1) + ' (losing)';
-                        } else if (data.evaluation > 50) {
-                            evalText += '+' + (data.evaluation / 100).toFixed(1) + ' (good)';
-                        } else if (data.evaluation < -50) {
-                            evalText += (data.evaluation / 100).toFixed(1) + ' (bad)';
-                        } else {
-                            evalText += (data.evaluation / 100).toFixed(1) + ' (equal)';
-                        }
-                        $('#evaluation').text(evalText);
+                        updateEvaluation(data.evaluation);
                     },
                     error: function(jqXHR, textStatus, errorThrown) {
                         console.error('Error undoing move:', textStatus, errorThrown);
@@ -242,6 +575,9 @@
 
             $('#difficultySlider').on('input', updateDifficulty);
             updateDifficulty();
+
+            // Initialize speed control
+            $('#speedValue').text((gameSpeed / 1000).toFixed(1) + 's');
         });
     </script>
 </body>
