@@ -187,6 +187,8 @@
         var aiVsAiInterval = null;
         var gameSpeed = 1500; // milliseconds
         var isPaused = false;
+        var consecutiveErrors = 0;
+        var maxConsecutiveErrors = 5;
 
         function onDragStart(source, piece, position, orientation) {
             if (game.game_over()) return false;
@@ -263,9 +265,25 @@
         }
 
         function makeAIMove() {
-            if (game.game_over() || isPaused) return;
+            if (game.game_over() || isPaused) {
+                if (game.game_over()) {
+                    console.log('Game is over:', getGameResult());
+                    $('#message').text('Game Over! Result: ' + getGameResult());
+                    clearInterval(aiVsAiInterval);
+                    $('#aiStatus').text('🏁 Game finished!');
+                }
+                return;
+            }
 
             $('#message').text('AI is thinking...');
+
+            // Debug current position
+            console.log('Current FEN:', game.fen());
+            console.log('Legal moves:', game.moves().length);
+            console.log('In check:', game.in_check());
+            console.log('In checkmate:', game.in_checkmate());
+            console.log('In stalemate:', game.in_stalemate());
+            console.log('Game over:', game.game_over());
             $.ajax({
                 url: '/ai_move',
                 method: 'POST',
@@ -296,70 +314,237 @@
                             if (move) {
                                 // Update the visual board
                                 board.position(game.fen());
+                                consecutiveErrors = 0; // Reset error counter on successful move
 
                                 if (game.game_over()) {
                                     $('#message').text('Game Over! Result: ' + getGameResult());
                                     clearInterval(aiVsAiInterval);
                                     $('#aiStatus').text('🏁 Game finished!');
                                 } else {
-                                    $('#message').text('AI moved: ' + data.move);
+                                    // Show different message based on whether fallback was used
+                                    let message = 'AI moved: ' + data.move;
+                                    if (data.fallback_used) {
+                                        message += ' (smart recovery)';
+                                    }
+                                    $('#message').text(message);
                                     updateEvaluation(data.evaluation);
                                 }
                             } else {
                                 console.error('Move failed despite validation:', data.move);
-                                handleInvalidMove(data.move);
+                                // Don't stop game, just log and continue
+                                $('#message').text('AI thinking... (move validation failed)');
                             }
                         } else {
                             console.error('Invalid move generated:', data.move, 'Legal moves:', possibleMoves.map(m => m.from + m.to));
-                            handleInvalidMove(data.move);
+                            consecutiveErrors++;
+                            if (consecutiveErrors >= maxConsecutiveErrors) {
+                                console.log('Too many consecutive errors, forcing a move...');
+                                forceAnyLegalMove();
+                                return;
+                            }
+                            $('#message').text('AI thinking... (invalid move generated)');
                         }
                     } else {
                         console.error('No move returned from AI');
-                        handleInvalidMove('no move');
+                        consecutiveErrors++;
+                        if (consecutiveErrors >= maxConsecutiveErrors) {
+                            console.log('Too many consecutive errors, forcing a move...');
+                            forceAnyLegalMove();
+                            return;
+                        }
+                        $('#message').text('AI thinking... (no move returned)');
                     }
                 },
                 error: function(xhr, status, error) {
-                    console.error('AI move error:', error);
-                    $('#message').text('AI move failed - ' + error);
-                    handleInvalidMove('network error');
+                    console.error('AI move error:', xhr.responseText || error);
+
+                    // Try to parse error response to see if backend provided a fallback move
+                    try {
+                        let response = JSON.parse(xhr.responseText);
+                        if (response.move) {
+                            // Backend provided a fallback move, use it
+                            console.log('Using backend fallback move:', response.move);
+                            let moveObj = {
+                                from: response.move.substring(0, 2),
+                                to: response.move.substring(2, 4),
+                                promotion: response.move.length > 4 ? response.move[4] : undefined
+                            };
+
+                            let move = game.move(moveObj);
+                            if (move) {
+                                board.position(game.fen());
+                                $('#message').text('AI moved: ' + response.move + ' (auto-recovered)');
+                                updateEvaluation(response.evaluation || 0);
+
+                                if (game.game_over()) {
+                                    $('#message').text('Game Over! Result: ' + getGameResult());
+                                    clearInterval(aiVsAiInterval);
+                                    $('#aiStatus').text('🏁 Game finished!');
+                                }
+                                return; // Successfully handled
+                            }
+                        }
+                    } catch (e) {
+                        console.log('No fallback move in error response');
+                    }
+
+                    // If no backend fallback, just continue - don't stop the game
+                    console.log('No backend fallback available, continuing...');
+                    consecutiveErrors++;
+                    if (consecutiveErrors >= maxConsecutiveErrors) {
+                        console.log('Too many consecutive errors, forcing a move...');
+                        forceAnyLegalMove();
+                        return;
+                    }
+                    $('#message').text('AI thinking... (recovering from server error)');
                 }
             });
         }
 
-        function handleInvalidMove(invalidMove) {
-            console.log('Handling invalid move:', invalidMove);
-            console.log('Current game FEN:', game.fen());
-            console.log('Current legal moves:', game.moves());
+        function forceAnyLegalMove() {
+            console.log('Forcing any legal move to break infinite loop...');
+            let legalMoves = game.moves({ verbose: true });
 
-            $('#message').text('Invalid AI move: ' + invalidMove + ' - Making random move');
+            if (legalMoves.length === 0) {
+                console.log('No legal moves available - game should be over');
+                $('#message').text('Game Over! No legal moves available');
+                clearInterval(aiVsAiInterval);
+                $('#aiStatus').text('🏁 Game finished!');
+                return;
+            }
 
-            // Get legal moves and make a random one
-            let legalMoves = game.moves();
-            if (legalMoves.length > 0) {
-                let randomMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
-                console.log('Making random legal move:', randomMove);
+            // Just take the first legal move
+            let move = game.move(legalMoves[0]);
+            if (move) {
+                board.position(game.fen());
+                $('#message').text('AI moved: ' + legalMoves[0].san + ' (forced move)');
+                consecutiveErrors = 0; // Reset error counter
 
-                let move = game.move(randomMove);
+                if (game.game_over()) {
+                    $('#message').text('Game Over! Result: ' + getGameResult());
+                    clearInterval(aiVsAiInterval);
+                    $('#aiStatus').text('🏁 Game finished!');
+                }
+            } else {
+                console.error('Even forced move failed!');
+                $('#message').text('Game stopped due to technical error');
+                clearInterval(aiVsAiInterval);
+            }
+        }
+
+        function makeSmartFallbackMove() {
+            console.log('Making smart fallback move...');
+
+            let legalMoves = game.moves({ verbose: true });
+            if (legalMoves.length === 0) {
+                $('#message').text('Game Over! No legal moves available');
+                clearInterval(aiVsAiInterval);
+                $('#aiStatus').text('🏁 Game finished!');
+                return;
+            }
+
+            // Try multiple approaches to make a move
+            let moveSuccess = false;
+
+            // Approach 1: Smart move selection
+            try {
+                let bestMove = selectBestFallbackMove(legalMoves);
+                let move = game.move(bestMove);
                 if (move) {
                     board.position(game.fen());
-                    $('#message').text('AI made random move: ' + randomMove + ' (recovered from error)');
+                    $('#message').text('AI moved: ' + bestMove.san + ' (smart fallback)');
+                    moveSuccess = true;
 
                     if (game.game_over()) {
                         $('#message').text('Game Over! Result: ' + getGameResult());
                         clearInterval(aiVsAiInterval);
                         $('#aiStatus').text('🏁 Game finished!');
                     }
-                } else {
-                    console.error('Even random move failed!');
-                    $('#message').text('AI completely stuck - stopping game');
-                    clearInterval(aiVsAiInterval);
                 }
-            } else {
-                console.log('No legal moves available - game should be over');
-                $('#message').text('Game Over! No legal moves available');
-                clearInterval(aiVsAiInterval);
-                $('#aiStatus').text('🏁 Game finished!');
+            } catch (e) {
+                console.error('Smart fallback failed:', e);
             }
+
+            // Approach 2: Try first legal move if smart selection failed
+            if (!moveSuccess && legalMoves.length > 0) {
+                try {
+                    let move = game.move(legalMoves[0]);
+                    if (move) {
+                        board.position(game.fen());
+                        $('#message').text('AI moved: ' + legalMoves[0].san + ' (emergency fallback)');
+                        moveSuccess = true;
+
+                        if (game.game_over()) {
+                            $('#message').text('Game Over! Result: ' + getGameResult());
+                            clearInterval(aiVsAiInterval);
+                            $('#aiStatus').text('🏁 Game finished!');
+                        }
+                    }
+                } catch (e) {
+                    console.error('Emergency fallback failed:', e);
+                }
+            }
+
+            // Approach 3: If all else fails, continue trying
+            if (!moveSuccess) {
+                console.error('All fallback attempts failed, but continuing game...');
+                $('#message').text('AI thinking... (recovering from error)');
+                // Don't stop the game - let it try again on next interval
+            }
+        }
+
+        function selectBestFallbackMove(legalMoves) {
+            // Priority order for smart fallback moves:
+
+            // 1. Captures (taking opponent pieces)
+            let captures = legalMoves.filter(move => move.captured);
+            if (captures.length > 0) {
+                console.log('Selecting capture move');
+                return captures[0];
+            }
+
+            // 2. Checks (putting opponent in check)
+            let checks = legalMoves.filter(move => {
+                game.move(move);
+                let inCheck = game.in_check();
+                game.undo();
+                return inCheck;
+            });
+            if (checks.length > 0) {
+                console.log('Selecting check move');
+                return checks[0];
+            }
+
+            // 3. Center control (e4, e5, d4, d5)
+            let centerMoves = legalMoves.filter(move =>
+                ['e4', 'e5', 'd4', 'd5'].includes(move.to) ||
+                ['e4', 'e5', 'd4', 'd5'].includes(move.san)
+            );
+            if (centerMoves.length > 0) {
+                console.log('Selecting center control move');
+                return centerMoves[0];
+            }
+
+            // 4. Piece development (knights and bishops)
+            let developmentMoves = legalMoves.filter(move =>
+                (move.piece === 'n' || move.piece === 'b') &&
+                !['a1', 'a8', 'h1', 'h8'].includes(move.from)
+            );
+            if (developmentMoves.length > 0) {
+                console.log('Selecting development move');
+                return developmentMoves[0];
+            }
+
+            // 5. Pawn moves (safe advancement)
+            let pawnMoves = legalMoves.filter(move => move.piece === 'p');
+            if (pawnMoves.length > 0) {
+                console.log('Selecting pawn move');
+                return pawnMoves[0];
+            }
+
+            // 6. Any other move
+            console.log('Selecting first available move');
+            return legalMoves[0];
         }
 
         function startAIvsAI() {
@@ -367,10 +552,29 @@
             isPaused = false;
 
             aiVsAiInterval = setInterval(function() {
-                if (!isPaused && !game.game_over()) {
-                    makeAIMove();
-                } else if (game.game_over()) {
-                    clearInterval(aiVsAiInterval);
+                try {
+                    if (!isPaused && !game.game_over()) {
+                        makeAIMove();
+                    } else if (game.game_over()) {
+                        clearInterval(aiVsAiInterval);
+                        $('#aiStatus').text('🏁 Game finished!');
+                    }
+                } catch (error) {
+                    console.error('Error in AI vs AI loop:', error);
+                    // Try to make a simple move to keep the game going
+                    try {
+                        let legalMoves = game.moves({ verbose: true });
+                        if (legalMoves.length > 0) {
+                            let move = game.move(legalMoves[0]);
+                            if (move) {
+                                board.position(game.fen());
+                                $('#message').text('AI moved: ' + legalMoves[0].san + ' (error recovery)');
+                            }
+                        }
+                    } catch (recoveryError) {
+                        console.error('Recovery move also failed:', recoveryError);
+                        $('#message').text('AI thinking... (deep recovery mode)');
+                    }
                 }
             }, gameSpeed);
         }

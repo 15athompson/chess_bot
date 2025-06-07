@@ -1,5 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 from chess_ai import ChessAI, ChessBoard
+import chess
+import chess.engine
 import threading
 import time
 import numpy as np
@@ -17,6 +19,55 @@ training_status = {
     'current_game': 0,
     'message': 'Ready to train'
 }
+
+def select_smart_move(chess_board, legal_moves):
+    """Select a smart fallback move when AI fails"""
+    if not legal_moves:
+        return None
+
+    # Priority 1: Captures
+    captures = [move for move in legal_moves if chess_board.is_capture(move)]
+    if captures:
+        return captures[0]
+
+    # Priority 2: Checks
+    checks = []
+    for move in legal_moves:
+        chess_board.push(move)
+        if chess_board.is_check():
+            checks.append(move)
+        chess_board.pop()
+    if checks:
+        return checks[0]
+
+    # Priority 3: Center control
+    center_squares = [chess.E4, chess.E5, chess.D4, chess.D5]
+    center_moves = [move for move in legal_moves if move.to_square in center_squares]
+    if center_moves:
+        return center_moves[0]
+
+    # Priority 4: Piece development (knights and bishops)
+    development_moves = []
+    for move in legal_moves:
+        piece = chess_board.piece_at(move.from_square)
+        if piece and piece.piece_type in [chess.KNIGHT, chess.BISHOP]:
+            # Avoid moving to edge squares
+            if move.to_square not in [chess.A1, chess.A8, chess.H1, chess.H8]:
+                development_moves.append(move)
+    if development_moves:
+        return development_moves[0]
+
+    # Priority 5: Pawn moves
+    pawn_moves = []
+    for move in legal_moves:
+        piece = chess_board.piece_at(move.from_square)
+        if piece and piece.piece_type == chess.PAWN:
+            pawn_moves.append(move)
+    if pawn_moves:
+        return pawn_moves[0]
+
+    # Fallback: first legal move
+    return legal_moves[0]
 
 @app.route('/')
 def index():
@@ -172,76 +223,121 @@ def get_legal_moves():
 
 @app.route('/ai_move', methods=['POST'])
 def ai_move():
-    """Get AI move for AI vs AI mode"""
+    """Get AI move for AI vs AI mode using python-chess for reliability"""
     try:
         fen = request.json['fen']
         difficulty = float(request.json.get('difficulty', 0.8))
 
         print(f"AI move requested for FEN: {fen}")
 
-        # Create temporary board from FEN
-        temp_board = ChessBoard(fen)
+        # Use python-chess for reliable board handling
+        chess_board = chess.Board(fen)
 
-        # Validate that the board loaded correctly
-        if not temp_board:
-            print("Failed to create board from FEN")
-            return jsonify({'error': 'Invalid FEN'}), 400
+        if chess_board.is_game_over():
+            print("Game is over according to python-chess")
+            return jsonify({'error': 'Game is over'}), 400
 
-        # Get legal moves to verify board state
-        legal_moves = temp_board.get_legal_moves_safe()
+        # Get legal moves using python-chess
+        legal_moves = list(chess_board.legal_moves)
         print(f"Legal moves available: {len(legal_moves)}")
 
         if not legal_moves:
-            print("No legal moves available - game should be over")
+            print("No legal moves available")
             return jsonify({'error': 'No legal moves available'}), 400
 
-        # Get AI move with timeout protection
-        move = None
-        try:
-            move = ai.get_best_move(temp_board, difficulty)
-            print(f"AI generated move: {move}")
-        except Exception as ai_error:
-            print(f"AI move generation failed: {ai_error}")
-            # Fallback to random legal move
-            move = random.choice(legal_moves)
-            print(f"Using random fallback move: {move}")
+        # Convert to our custom board for AI evaluation
+        custom_board = ChessBoard(fen)
 
-        if move and move in legal_moves:
-            # Validate move is actually legal
+        # Get AI move
+        ai_move = ai.get_best_move(custom_board, difficulty)
+        print(f"AI generated move: {ai_move}")
+
+        if ai_move:
+            # Try multiple approaches to validate and convert the move
+            move_found = False
+            final_move = None
+
+            # Approach 1: Direct string parsing
             try:
-                # Make the move on temporary board to get evaluation
-                temp_board.make_move(move)
-                evaluation = ai.evaluate_position(temp_board)
+                from_square = chess.parse_square(ai_move[:2])
+                to_square = chess.parse_square(ai_move[2:4])
+
+                # Handle promotion
+                promotion = None
+                if len(ai_move) == 5:
+                    promotion_piece = ai_move[4].lower()
+                    if promotion_piece == 'q':
+                        promotion = chess.QUEEN
+                    elif promotion_piece == 'r':
+                        promotion = chess.ROOK
+                    elif promotion_piece == 'b':
+                        promotion = chess.BISHOP
+                    elif promotion_piece == 'n':
+                        promotion = chess.KNIGHT
+
+                move = chess.Move(from_square, to_square, promotion)
+
+                if move in chess_board.legal_moves:
+                    final_move = move
+                    move_found = True
+                    print(f"Move validated via direct parsing: {ai_move}")
+
+            except Exception as e:
+                print(f"Direct parsing failed: {e}")
+
+            # Approach 2: Try to find matching move in legal moves
+            if not move_found:
+                legal_move_strings = [str(m) for m in legal_moves]
+
+                # Check if the move string matches any legal move
+                if ai_move in legal_move_strings:
+                    final_move = legal_moves[legal_move_strings.index(ai_move)]
+                    move_found = True
+                    print(f"Move found in legal moves list: {ai_move}")
+
+                # Try variations (with/without promotion notation)
+                elif len(ai_move) == 4:
+                    # Try adding common promotions
+                    for promo in ['q', 'r', 'b', 'n']:
+                        test_move = ai_move + promo
+                        if test_move in legal_move_strings:
+                            final_move = legal_moves[legal_move_strings.index(test_move)]
+                            move_found = True
+                            print(f"Move found with promotion: {test_move}")
+                            break
+
+            # Approach 3: Fallback to best legal move if AI move is invalid
+            used_fallback = False
+            if not move_found:
+                print(f"AI move {ai_move} not found in legal moves: {legal_move_strings[:10]}")
+                # Select a good fallback move
+                final_move = select_smart_move(chess_board, legal_moves)
+                move_found = True
+                used_fallback = True
+                print(f"Using smart fallback move: {final_move}")
+
+            if move_found and final_move:
+                # Make the move
+                chess_board.push(final_move)
+
+                # Get evaluation using our custom board
+                try:
+                    custom_board.make_move(str(final_move))
+                    evaluation = ai.evaluate_position(custom_board)
+                except:
+                    evaluation = 0  # Fallback evaluation
 
                 response = {
-                    'move': move,
+                    'move': str(final_move),
                     'evaluation': evaluation,
-                    'fen': temp_board.to_fen()
+                    'fen': chess_board.fen(),
+                    'fallback_used': used_fallback
                 }
-                print(f"Returning valid move: {move}")
+                print(f"Returning move: {final_move} (fallback: {used_fallback})")
                 return jsonify(response)
-            except Exception as move_error:
-                print(f"Failed to make move {move}: {move_error}")
-                # Try a different random move
-                remaining_moves = [m for m in legal_moves if m != move]
-                if remaining_moves:
-                    fallback_move = random.choice(remaining_moves)
-                    print(f"Trying fallback move: {fallback_move}")
-                    try:
-                        temp_board = ChessBoard(fen)  # Reset board
-                        temp_board.make_move(fallback_move)
-                        evaluation = ai.evaluate_position(temp_board)
-                        response = {
-                            'move': fallback_move,
-                            'evaluation': evaluation,
-                            'fen': temp_board.to_fen()
-                        }
-                        return jsonify(response)
-                    except:
-                        pass
-
-        print(f"All move attempts failed. Move: {move}, Legal moves: {legal_moves[:5]}")
-        return jsonify({'error': f'Generated invalid move: {move}'}), 400
+        else:
+            print("AI returned no move")
+            return jsonify({'error': 'AI failed to generate move'}), 400
 
     except Exception as e:
         print(f"Error in ai_move: {e}")
